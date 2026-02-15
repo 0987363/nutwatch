@@ -16,7 +16,12 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-import yaml
+try:
+    import yaml
+    YAML_IMPORT_ERROR = None
+except ModuleNotFoundError as exc:
+    yaml = None
+    YAML_IMPORT_ERROR = exc
 
 LOGGER = logging.getLogger("nutwatch")
 
@@ -38,6 +43,16 @@ OPERATOR_ALIAS = {
     "eq": "==",
     "ne": "!=",
 }
+
+
+class UnknownUpsError(RuntimeError):
+    def __init__(self, ups_name: str, available_ups: List[str]) -> None:
+        self.ups_name = ups_name
+        self.available_ups = available_ups
+        available_text = ", ".join(available_ups) if available_ups else "none discovered"
+        super().__init__(
+            f"NUT server returned ERR UNKNOWN-UPS for '{ups_name}'. Available UPS names: {available_text}"
+        )
 
 
 class NutClient:
@@ -64,6 +79,8 @@ class NutClient:
                 begin_line = self._read_line(sock_file)
                 expected_begin = f"BEGIN LIST VAR {ups_name}"
                 if begin_line != expected_begin:
+                    if begin_line == "ERR UNKNOWN-UPS":
+                        raise UnknownUpsError(ups_name=ups_name, available_ups=self._safe_list_ups())
                     if begin_line.startswith("ERR"):
                         raise RuntimeError(f"NUT server error: {begin_line}")
                     raise RuntimeError(f"Unexpected response: {begin_line}")
@@ -79,6 +96,28 @@ class NutClient:
                             key, value = parsed
                             values[key] = value
                 return values
+
+    def list_ups(self) -> List[str]:
+        with socket.create_connection((self.host, self.port), timeout=self.timeout_seconds) as sock:
+            sock.settimeout(self.timeout_seconds)
+            with sock.makefile("rwb") as sock_file:
+                self._authenticate(sock_file)
+                self._send_command(sock_file, "LIST UPS")
+                begin_line = self._read_line(sock_file)
+                if begin_line != "BEGIN LIST UPS":
+                    if begin_line.startswith("ERR"):
+                        raise RuntimeError(f"NUT server error: {begin_line}")
+                    raise RuntimeError(f"Unexpected response: {begin_line}")
+
+                ups_names: List[str] = []
+                while True:
+                    line = self._read_line(sock_file)
+                    if line == "END LIST UPS":
+                        break
+                    parsed_name = self._parse_ups_line(line)
+                    if parsed_name is not None:
+                        ups_names.append(parsed_name)
+                return ups_names
 
     def _authenticate(self, sock_file: Any) -> None:
         if not self.username:
@@ -122,6 +161,23 @@ class NutClient:
         value = " ".join(parts[3:])
         return key, value
 
+    @staticmethod
+    def _parse_ups_line(line: str) -> Optional[str]:
+        try:
+            parts = shlex.split(line)
+        except ValueError:
+            return None
+        if len(parts) < 2 or parts[0] != "UPS":
+            return None
+        return parts[1]
+
+    def _safe_list_ups(self) -> List[str]:
+        try:
+            return self.list_ups()
+        except Exception as exc:  # pylint: disable=broad-except
+            LOGGER.debug("Failed to list available UPS names: %s", exc)
+            return []
+
 
 class RuleState:
     def __init__(self) -> None:
@@ -163,6 +219,8 @@ class NutWatch:
         while not self.stop_event.is_set():
             try:
                 self._poll_once()
+            except UnknownUpsError as exc:
+                LOGGER.error("polling failed: %s", exc)
             except Exception as exc:  # pylint: disable=broad-except
                 LOGGER.exception("polling failed: %s", exc)
 
@@ -354,6 +412,8 @@ class NutWatch:
 
 
 def load_config(config_path: Path) -> Dict[str, Any]:
+    if yaml is None:
+        raise RuntimeError("PyYAML is required. Install with: pip3 install -r requirements.txt") from YAML_IMPORT_ERROR
     with config_path.open("r", encoding="utf-8") as file:
         config = yaml.safe_load(file) or {}
     if not isinstance(config, dict):

@@ -42,6 +42,16 @@ python3 nutwatch.py --config /etc/nutwatch/config.yaml
 python3 nutwatch.py --config /etc/nutwatch/config.yaml --dry
 ```
 
+## Troubleshooting
+
+If you see `ERR UNKNOWN-UPS`, your `nut.ups_name` is incorrect. List valid names on the NUT server:
+
+```bash
+upsc -l 127.0.0.1
+```
+
+Then update `ups_name` in your YAML config.
+
 ## Install with systemd
 
 1. Copy files:

@@ -6,7 +6,7 @@ poll_interval_seconds: 15
 nut:
   host: 127.0.0.1
   port: 3493
-  ups_name: myups
+  ups_name: TGBOX850
   timeout_seconds: 5
   # username: monitor
   # password: your_password
