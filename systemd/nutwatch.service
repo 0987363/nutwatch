@@ -1,0 +1,22 @@
+[Unit]
+Description=NUT UPS Threshold Watcher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/nutwatch
+ExecStart=/usr/bin/python3 /opt/nutwatch/nutwatch.py --config /etc/nutwatch/config.yaml
+Restart=always
+RestartSec=5
+
+# Optional hardening
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

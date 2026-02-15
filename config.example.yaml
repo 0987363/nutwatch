@@ -1,0 +1,47 @@
+# NUT UPS monitor configuration
+
+log_level: INFO
+poll_interval_seconds: 15
+
+nut:
+  host: 127.0.0.1
+  port: 3493
+  ups_name: myups
+  timeout_seconds: 5
+  # username: monitor
+  # password: your_password
+
+command_defaults:
+  shell: true
+  timeout_seconds: 30
+
+rules:
+  - name: battery_low_40
+    var: battery.charge
+    operator: "<="
+    threshold: 40
+    trigger: on_enter
+    cooldown_seconds: 0
+    commands:
+      - cmd: "logger -t nutwatch 'UPS battery <= 40%'"
+      - cmd: "echo 'battery low 40'"
+
+  - name: battery_critical_20
+    var: battery.charge
+    operator: "<="
+    threshold: 20
+    trigger: on_enter
+    cooldown_seconds: 300
+    commands:
+      - cmd: "logger -t nutwatch 'UPS battery <= 20%, preparing shutdown'"
+      - cmd: "systemctl stop some-service"
+      - cmd: "shutdown -h +1 'UPS battery critical'"
+
+  - name: battery_recover_80
+    var: battery.charge
+    operator: ">="
+    threshold: 80
+    trigger: on_enter
+    cooldown_seconds: 0
+    commands:
+      - cmd: "logger -t nutwatch 'UPS battery recovered >= 80%'"
